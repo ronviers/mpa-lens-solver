@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+.env
+.envrc
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Per-machine settings
+.claude/
+
+# Local dev profile (per-host snapshot; not source-of-truth)
+dev_profile.json

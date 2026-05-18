@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mpa-lens-solver"
+version = "1.2.0"
+description = "Substrate-class translation-field characterizer for the MPA suite. The substrate's ICC profile."
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "ronviers"}]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "mpa-scale-solver",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[project.urls]
+Homepage = "https://github.com/ronviers/mpa-lens-solver"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mpa_lens_solver*"]
