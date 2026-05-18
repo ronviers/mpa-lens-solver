@@ -27,10 +27,18 @@ quantum memory.
 
 ## Status
 
-**v1.0 — one process, predictor-corrector with adaptive bracket.** A single
+**v1.2 — one process + bootstrap mode + FitDiagnostics container.** A single
 function `fit_translation_field` handles every case from "prior is exactly
 right" (zero refinement passes) to "no prior exists" (bootstrap from random
-within gamut). Same return shape, same call site, no separate code paths.
+within gamut, `bootstrap=True`). Same return shape, same call site, no
+separate code paths.
+
+Every cell's `canonical.extras` carries a `fit_diagnostics` dict — raw
+confidence signals (residual_final, regime_confidence, predictor_gap, source,
+n_passes). These are *raw* signals in their natural scale; lens-solver does
+not threshold them. Calibration apparatus (per-substrate baseline percentiles +
+cross-path agreement) lives downstream in mpa-conform — see [Confidence
+quantities](#confidence-quantities) below.
 
 The refinement is hill-climbing in 1D on chit (γ_AB is unobservable from the
 single-mode gFDR locus per RFC-S Appendix B item 4) under two stacked guards:
@@ -79,6 +87,16 @@ field = fit_translation_field(
 )
 # field is an mpa_scale_solver.TranslationField, ready for apply_translation /
 # forward_sweep_invert in mpa-scale-solver's runtime.
+
+# Or: bootstrap mode (mask the cdv1 prior; seed from uniform random within a
+# substrate-class gamut). Useful for calibration sweeps that need to exercise
+# the prior-less path on a substrate whose prior IS available — the prior'd
+# run provides ground truth.
+field = fit_translation_field(
+    substrate="glass", cells=cells, xdot_kind="spin-flip",
+    max_passes=100, bootstrap=True, bootstrap_seed_range=(-2.0, 2.0),
+    rng_seed=42,
+)
 ```
 
 The field is consumed by mpa-conform's `library_sequence_shot.py` to feed
@@ -113,10 +131,43 @@ wire format every downstream camera reads:
 | `field.rule[i].canonical.extras["residual"]` | gfdr score at the stamped chit |
 | `field.rule[i].canonical.extras["passes_used"]` | refinement passes that ran |
 | `field.rule[i].canonical.extras["guard_regime"]` | whether the regime-band guard was active |
+| `field.rule[i].canonical.extras["fit_diagnostics"]` | raw confidence vector — `{residual_final, regime_confidence, predictor_gap, source, n_passes}` |
 
 JSON wire format: `dataclasses.asdict(field)` + `json.dumps`. The frozen
 dataclasses round-trip cleanly; the `extras` dict carries only JSON-primitive
 values. No custom encoders required.
+
+## Confidence quantities
+
+Lens-solver emits **raw** diagnostic signals per cell — not classifications.
+Three orthogonal fields with uniform "higher = worse" semantics, all in
+their natural scale:
+
+| Field | Meaning |
+|---|---|
+| `residual_final` | Raw final residual of the gFDR locus score; lower = better fit. Path-conditional natural scale (no normalization). |
+| `regime_confidence` | `1 − (off-regime candidate fraction over refinement passes)`. Range `[0, 1]`. High = score function pinned to one regime (potentially over-confident); low = score explored regimes (refinement had room to work). |
+| `predictor_gap` | `\|final_chit − predicted_chit\|` in chit units. Raw distance, no bracket normalization. `None` when predictor was inactive (no trajectory history, single-cell call). |
+
+Plus `source` (path identity: `lens_solver_prior` or `lens_solver_bootstrap`)
+and `n_passes` (refinement passes used).
+
+**Calibration apparatus lives downstream**, not in this repo. The recurring
+failure of "single calibration-free per-fit confidence scalar" surveyed
+across five attempts (raw thresholds, normalized thresholds, non-parametric
+bootstrap, Laplace approximation, polished Laplace) showed the solvers'
+robustness constraints intentionally defeat each metric class. The salvage:
+split per-fit confidence into three calibration-free primitives, all in
+mpa-conform's calibration subpackage:
+
+- **Per-substrate baseline percentiles** ([`mpa-conform/conformer/calibration/baselines.py`](https://github.com/ronviers/mpa-conform/blob/master/conformer/calibration/baselines.py)) — known-good distribution of `fit_diagnostics` values per (substrate, path, field). New substrates extend the calibration set automatically.
+- **Cross-path agreement** ([`mpa-conform/conformer/calibration/cross_path.py`](https://github.com/ronviers/mpa-conform/blob/master/conformer/calibration/cross_path.py)) — `|chit_two_stage − chit_lens_solver_prior|` in chit units. Independent-paths disagreement is a chit-unit signal needing no calibration.
+- **Cross-substrate sweep harness** ([`mpa-conform/conformer/calibration/sweep.py`](https://github.com/ronviers/mpa-conform/blob/master/conformer/calibration/sweep.py)) — produces the parquet baselines are computed from. Re-run when the algorithm changes.
+
+The downstream `declaration-bundle.v0.3` schema's `audit_delta` carries all
+three plus the raw `fit_diagnostics`. The auditor consumes percentiles
+(self-calibrating against substrate) + cross-path disagreement; raw
+diagnostics ride along for forensics.
 
 ## What this repo does NOT do
 
@@ -146,6 +197,7 @@ path lives in mpa-scale-solver, which is already Rust-canonical.
 | # | Date | Session | Result | Notes |
 |---|------|---------|--------|-------|
 | 1 | 2026-05-17 | v1.0 architecture: prism + predictor-corrector | shipped | 53/53 tests; one-process collapses BLOCK_IN's v0/v0.2/v0.3+ ladder; predictor reads prior history; adaptive bracket sized by trajectory inertia; regime-band guard; QEC + glass paired Mode B shots show the c→s→r migration with Banach overlay diverging cleanly |
+| 2 | 2026-05-18 | v1.2: FitDiagnostics + bootstrap mode + sweep characterization → salvage to mpa-conform calibration apparatus | shipped | 75/75 tests; FitDiagnostics container (residual_final, regime_confidence, predictor_gap, source, n_passes) emitted per cell; `bootstrap=True` masks the cdv1 prior; 56,880-fit sweep across 3×3×7×9×5 matrix in mpa-conform characterized 5 attempts at calibration-free per-fit confidence (all hit structural walls — solver robustness defeats data-perturbation metrics); salvage via per-substrate baseline percentiles + cross-path agreement landed in mpa-conform v0.3 schema |
 
 ## License
 
