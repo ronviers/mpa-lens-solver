@@ -2,6 +2,10 @@
 
 Read this before touching anything in this repo.
 
+## Program-level discipline
+
+This repo is **framework runtime** per [`H:/mpa-central/METHODOLOGY.md`](../mpa-central/METHODOLOGY.md) Cut 4 — fits per-substrate `TranslationField` instances (the substrate's "ICC profile"). Fits feed Cut 2 clause (b) (calibration records) at the curator step.
+
 **Three-solver split** (canonical at
 [`H:/mpa-conform/docs/SOLVERS_BLOCK_IN.md`](../mpa-conform/docs/SOLVERS_BLOCK_IN.md)):
 
