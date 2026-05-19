@@ -16,6 +16,12 @@ no prior trajectory exists. Use this to exercise the bootstrap path on a
 substrate whose prior IS available — the prior'd run provides ground truth
 for sweep/calibration work.
 
+bootstrap=None (default) dispatches per substrate: known substrates
+(_PRIOR_DISPATCH) use the cdv1 prior; unknown substrates fall through
+to bootstrap. bootstrap_seed_range=None dispatches similarly via
+_BOOTSTRAP_SEED_RANGE_DISPATCH with DEFAULT_BOOTSTRAP_SEED_RANGE as the
+unknown-substrate fallback.
+
 Prism per the pipeline canonical (mpa-conform SUITE_BLOCK_IN): substrate-native
 operating points enter, canonical (chit, gamma_AB) exit. Each substrate class
 has its own ICC profile:
@@ -54,6 +60,15 @@ BRAIN_SCENARIO_CHIT: dict[str, float] = {
 DEFAULT_GAMMA_AB = -0.3
 DEFAULT_K_FRUST = False
 DEFAULT_BOOTSTRAP_SEED_RANGE: tuple[float, float] = (-2.0, 2.0)
+
+# Per-substrate bootstrap seed ranges, padded ~25% beyond the cdv1-prior
+# chit envelope across the library's operating points. Unknown substrates
+# fall back to DEFAULT_BOOTSTRAP_SEED_RANGE.
+_BOOTSTRAP_SEED_RANGE_DISPATCH: dict[str, tuple[float, float]] = {
+    "glass":   (-1.0, 1.2),    # prior envelope: -0.7 to +0.9 (T = 0.2..1.8)
+    "quantum": (-2.5, 5.5),    # prior envelope: -1.6 to +4.6 (p_base = 1e-4..5e-2)
+    "brain":   (-1.0, 1.0),    # prior envelope: -0.5 to +0.6 (4 scenarios)
+}
 
 
 def glass_prior(op: dict) -> float:
@@ -107,7 +122,28 @@ def _natural_sort_key(substrate: str, cell: dict):
         return (float(op["p_base"]),)
     if substrate == "brain":
         return (_BRAIN_SCENARIO_ORDER.get(op.get("scenario"), 99),)
-    raise ValueError(f"no natural sort key for substrate {substrate!r}")
+    # Unknown substrate: preserve caller's input order via stable sort.
+    return (0,)
+
+
+def _resolve_bootstrap(substrate: str, override: bool | None) -> bool:
+    """Honour explicit override; otherwise bootstrap iff substrate is
+    unknown to _PRIOR_DISPATCH. The bootstrap path becomes the zero-
+    knowledge fallback for substrates the framework hasn't characterized."""
+    if override is not None:
+        return override
+    return substrate not in _PRIOR_DISPATCH
+
+
+def _resolve_bootstrap_seed_range(
+    substrate: str,
+    override: tuple[float, float] | None,
+) -> tuple[float, float]:
+    """Honour explicit override; otherwise dispatch on substrate with
+    fallback to DEFAULT_BOOTSTRAP_SEED_RANGE."""
+    if override is not None:
+        return override
+    return _BOOTSTRAP_SEED_RANGE_DISPATCH.get(substrate, DEFAULT_BOOTSTRAP_SEED_RANGE)
 
 
 def cdv1_prior_chit(substrate: str, op: dict) -> float:
@@ -121,7 +157,10 @@ def cdv1_prior_chit(substrate: str, op: dict) -> float:
 
 def _operating_point_from_cell(substrate: str, cell: dict) -> OperatingPoint:
     op = cell["operating_point"]
-    axes_keys = _OPERATING_POINT_AXES[substrate]
+    axes_keys = _OPERATING_POINT_AXES.get(substrate)
+    if axes_keys is None:
+        # Unknown substrate: take every op key except label and gt.
+        axes_keys = tuple(k for k in op if k not in ("label", "gt"))
     axes = {k: op[k] for k in axes_keys if op.get(k) is not None}
     return OperatingPoint(label=op["label"], gt=op["gt"], axes=axes)
 
@@ -139,11 +178,24 @@ def fit_translation_field(
     min_delta: float = 0.05,
     k_step: float = 1.5,
     trail_window: int = 3,
-    bootstrap: bool = False,
-    bootstrap_seed_range: tuple[float, float] = DEFAULT_BOOTSTRAP_SEED_RANGE,
+    bootstrap: bool | None = None,
+    bootstrap_seed_range: tuple[float, float] | None = None,
 ) -> TranslationField:
     """One process. Stamp cdv1 prior (or random seed if bootstrap); refine
     each cell up to max_passes.
+
+    `bootstrap=None` (default): dispatched per substrate. Substrates in
+    `_PRIOR_DISPATCH` (glass / quantum / brain) use the cdv1 prior;
+    unknown substrates fall through to bootstrap. Pass an explicit
+    `True`/`False` to override (e.g. sweep/calibration runs exercising
+    the bootstrap path on a substrate whose prior IS available — the
+    prior'd run provides ground truth).
+
+    `bootstrap_seed_range=None` (default): per-substrate dispatch from
+    `_BOOTSTRAP_SEED_RANGE_DISPATCH` (padded ~25% beyond each known
+    substrate's prior envelope). Unknown substrates fall back to
+    DEFAULT_BOOTSTRAP_SEED_RANGE = (-2.0, 2.0). Pass an explicit tuple
+    to override.
 
     max_passes=0 (default): pure prior, no scoring, no observation read.
     max_passes>0: per cell, score against (C, chi) and hill-climb on chit
@@ -179,6 +231,9 @@ def fit_translation_field(
     dict — see mpa_lens_solver.diagnostics.FitDiagnostics for the shape.
     """
     from mpa_scale_solver.gfdr_model import vertex_regime  # noqa: PLC0415
+
+    bootstrap = _resolve_bootstrap(substrate, bootstrap)
+    bootstrap_seed_range = _resolve_bootstrap_seed_range(substrate, bootstrap_seed_range)
 
     sorted_cells = sorted(cells, key=lambda c: _natural_sort_key(substrate, c))
 

@@ -195,3 +195,71 @@ def test_fit_translation_field_deterministic():
         assert ra.canonical.chit == rb.canonical.chit
         assert ra.canonical.gamma_AB == rb.canonical.gamma_AB
         assert ra.operating_point.label == rb.operating_point.label
+
+
+# --- bootstrap dispatch (unknown substrates) ------------------------------
+
+def _unknown_cell(elevation: float, gt: str = "c") -> dict:
+    return {
+        "operating_point": {
+            "label": f"alt={elevation:.0f}m", "elevation": elevation, "gt": gt,
+        },
+    }
+
+
+def test_fit_translation_field_known_substrate_uses_prior_by_default():
+    cells = [_glass_cell(0.2), _glass_cell(1.8, gt="r")]
+    field = fit_translation_field("glass", cells, "spin-flip")
+    for r in field.rule:
+        assert r.canonical.method == "cdv1_prior_v0"
+        diag = r.canonical.extras["fit_diagnostics"]
+        assert diag["source"] == "lens_solver_prior"
+
+
+def test_fit_translation_field_unknown_substrate_auto_bootstraps():
+    cells = [_unknown_cell(1500), _unknown_cell(2400), _unknown_cell(3200, gt="r")]
+    field = fit_translation_field("mountain", cells, "weathering-rate")
+    for r in field.rule:
+        assert r.canonical.method == "bootstrap_seed_v0"
+        diag = r.canonical.extras["fit_diagnostics"]
+        assert diag["source"] == "lens_solver_bootstrap"
+        # Default unknown-substrate seed range: DEFAULT_BOOTSTRAP_SEED_RANGE
+        assert -2.0 <= r.canonical.chit <= 2.0
+    # Unknown substrate preserves input order (stable sort, no natural key).
+    labels = [r.operating_point.label for r in field.rule]
+    assert labels == ["alt=1500m", "alt=2400m", "alt=3200m"]
+    # Op axes pass through (excluding label and gt).
+    assert field.rule[0].operating_point.axes == {"elevation": 1500}
+
+
+def test_fit_translation_field_explicit_bootstrap_overrides_default():
+    cells = [_glass_cell(0.2), _glass_cell(1.8, gt="r")]
+    field = fit_translation_field("glass", cells, "spin-flip", bootstrap=True)
+    for r in field.rule:
+        assert r.canonical.method == "bootstrap_seed_v0"
+        diag = r.canonical.extras["fit_diagnostics"]
+        assert diag["source"] == "lens_solver_bootstrap"
+
+
+def test_fit_translation_field_bootstrap_seed_range_dispatch():
+    # Glass dispatched range is (-1.0, 1.2); draws should sit inside it.
+    cells = [_glass_cell(0.2) for _ in range(20)]
+    field = fit_translation_field("glass", cells, "spin-flip", bootstrap=True)
+    for r in field.rule:
+        assert -1.0 <= r.canonical.chit <= 1.2
+    # Quantum dispatched range is (-2.5, 5.5); the wider positive tail
+    # should be reachable, which the (-1.0, 1.2) glass range would clip.
+    cells = [_quantum_cell(1e-4) for _ in range(20)]
+    field = fit_translation_field("quantum", cells, "detection-event", bootstrap=True)
+    for r in field.rule:
+        assert -2.5 <= r.canonical.chit <= 5.5
+
+
+def test_fit_translation_field_explicit_seed_range_overrides_dispatch():
+    cells = [_glass_cell(0.2) for _ in range(20)]
+    field = fit_translation_field(
+        "glass", cells, "spin-flip",
+        bootstrap=True, bootstrap_seed_range=(0.0, 0.5),
+    )
+    for r in field.rule:
+        assert 0.0 <= r.canonical.chit <= 0.5

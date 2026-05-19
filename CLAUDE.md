@@ -57,6 +57,27 @@ mpa-scale-solver's `apply_translation` at the right point in the pipeline.
   the v0→v0.3+ ladder collapsed at v1.0. BLOCK_IN is now a thin
   next-session handoff listing open items, not a multi-version trajectory.
 
+## cdv1 character framing
+
+The substrates lens-solver handles (glass, quantum, brain) are
+cdv1-foundational — their theorems composed across them and they carry
+framework load. Decisions about the score function, TranslationField
+shape, or new-substrate onboarding must be grounded in cdv1 character,
+not made on engineering reflex (the "thin where standards bodies are
+thick" discipline does NOT apply where the framework's testable content
+lives — only to scaffolding and protocol prose).
+
+Read [`docs/CHARACTER_FRAMING.md`](docs/CHARACTER_FRAMING.md) before any
+change that touches: the score function (`locus_residual` or its
+consumers), the TranslationField shape (observable conventions,
+normalization, per-substrate metadata), the `_PRIOR_DISPATCH` registry
+(a prior is a declaration about substrate character), or any reasoning
+about why refinement does or does not "beat" the prior (the deviation
+is character, not error).
+
+The frame does not apply to pipeline glue, IO, test mechanics, or
+build/packaging — those are normal engineering.
+
 ## Sibling-repo relationships
 
 | Repo | We read | We write |

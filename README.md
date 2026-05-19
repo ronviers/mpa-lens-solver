@@ -31,7 +31,10 @@ quantum memory.
 function `fit_translation_field` handles every case from "prior is exactly
 right" (zero refinement passes) to "no prior exists" (bootstrap from random
 within gamut, `bootstrap=True`). Same return shape, same call site, no
-separate code paths.
+separate code paths. As of 2026-05-18, `bootstrap` defaults to per-substrate
+dispatch (known substrates → cdv1 prior, unknown → bootstrap fallback) and
+`bootstrap_seed_range` defaults to per-substrate ranges padded from each
+substrate's prior envelope. Explicit args still override.
 
 Every cell's `canonical.extras` carries a `fit_diagnostics` dict — raw
 confidence signals (residual_final, regime_confidence, predictor_gap, source,
@@ -198,6 +201,7 @@ path lives in mpa-scale-solver, which is already Rust-canonical.
 |---|------|---------|--------|-------|
 | 1 | 2026-05-17 | v1.0 architecture: prism + predictor-corrector | shipped | 53/53 tests; one-process collapses BLOCK_IN's v0/v0.2/v0.3+ ladder; predictor reads prior history; adaptive bracket sized by trajectory inertia; regime-band guard; QEC + glass paired Mode B shots show the c→s→r migration with Banach overlay diverging cleanly |
 | 2 | 2026-05-18 | v1.2: FitDiagnostics + bootstrap mode + sweep characterization → salvage to mpa-conform calibration apparatus | shipped | 75/75 tests; FitDiagnostics container (residual_final, regime_confidence, predictor_gap, source, n_passes) emitted per cell; `bootstrap=True` masks the cdv1 prior; 56,880-fit sweep across 3×3×7×9×5 matrix in mpa-conform characterized 5 attempts at calibration-free per-fit confidence (all hit structural walls — solver robustness defeats data-perturbation metrics); salvage via per-substrate baseline percentiles + cross-path agreement landed in mpa-conform v0.3 schema |
+| 3 | 2026-05-18 | Bootstrap rollout + cdv1 character framing landed | shipped | 80/80 tests; `bootstrap=None` auto-dispatches per substrate (known → prior, unknown → bootstrap); per-substrate `_BOOTSTRAP_SEED_RANGE_DISPATCH` padded ~25% from each substrate's prior envelope (glass `(-1.0, 1.2)`, quantum `(-2.5, 5.5)`, brain `(-1.0, 1.0)`); `_natural_sort_key` and `_operating_point_from_cell` fall back for unknown substrates so dispatch flows end-to-end with zero code change when a fourth substrate arrives; BLOCK_IN items 2 and 3 closed; new `docs/CHARACTER_FRAMING.md` captures how the three cdv1-foundational substrates' character flows through priors + regime guard + adaptive bracket, framing the score-depth (item 1) and observable-conventions-in-TranslationField (item 2 long-term) questions; CLAUDE.md cites it as required reading before score-function or TranslationField shape changes |
 
 ## License
 
